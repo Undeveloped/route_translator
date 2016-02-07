@@ -1,23 +1,19 @@
 # frozen_string_literal: true
 module RouteTranslator
   module Translator
-    # Add standard route helpers for default locale e.g.
+    # Add standard route helpers for default locale.
+    #
+    # For example,
+    #
     #   I18n.locale = :de
     #   people_path -> people_de_path
     #   I18n.locale = :fr
     #   people_path -> people_fr_path
     def self.add_untranslated_helpers_to_controllers_and_views(old_name, named_route_collection)
-      if named_route_collection.respond_to?(:url_helpers_module)
-        url_helpers_module = named_route_collection.url_helpers_module
-        path_helpers_module = named_route_collection.path_helpers_module
-        url_helpers_list = named_route_collection.helper_names
-        path_helpers_list = named_route_collection.helper_names
-      else
-        url_helpers_module = named_route_collection.module
-        path_helpers_module = named_route_collection.module
-        url_helpers_list = named_route_collection.helpers
-        path_helpers_list = named_route_collection.helpers
-      end
+      url_helpers_module = named_route_collection.url_helpers_module
+      path_helpers_module = named_route_collection.path_helpers_module
+      url_helpers_list = named_route_collection.helper_names
+      path_helpers_list = named_route_collection.helper_names
 
       [
         ['path', path_helpers_module, path_helpers_list],
@@ -53,17 +49,13 @@ module RouteTranslator
           next
         end
 
-        translated_options = options.dup
         translated_options_constraints = options_constraints.dup
+        translated_options             = options.dup
 
-        unless translated_options.include?(RouteTranslator.locale_param_key)
-          translated_options.merge! RouteTranslator.locale_param_key => locale.to_s.gsub('native_', '')
-        end
         translated_options_constraints[RouteTranslator.locale_param_key] = locale.to_s
+        translated_options[RouteTranslator.locale_param_key]             = locale.to_s.gsub('native_', '') unless translated_options.include?(RouteTranslator.locale_param_key)
 
-        translated_name = translate_name(name, locale)
-        # TODO: Investigate this :(
-        translated_name = nil if translated_name && route_set.named_routes.send(:routes)[translated_name.to_sym]
+        translated_name = translate_name(name, locale, route_set.named_routes.names)
 
         block.call translated_name, translated_path, translated_options_constraints, translated_options
       end
@@ -72,7 +64,7 @@ module RouteTranslator
     def self.available_locales
       available_locales = config_locales || I18n.available_locales.dup
       available_locales.push(*RouteTranslator.native_locales) if RouteTranslator.native_locales.present?
-      # Make sure the default locale is translated in last place to avoid
+      # Be sure the default locale is translated in last place to avoid
       # problems with wildcards when default locale is omitted in paths. The
       # default routes will catch all paths like wildcard if it is translated first.
       available_locales.push(available_locales.delete(I18n.default_locale))
@@ -110,19 +102,27 @@ module RouteTranslator
          RouteTranslator.config.generate_unnamed_unlocalized_routes)
     end
 
-    def self.translate_name(n, locale)
-      "#{n}_#{locale.to_s.underscore}" if n.present?
+    def self.translate_name(name, locale, named_routes_names)
+      return unless name.present?
+      translated_name = "#{name}_#{locale.to_s.underscore}"
+      if named_routes_names.include?(translated_name.to_sym)
+        nil
+      else
+        translated_name
+      end
     end
 
     def self.default_locale?(locale)
-      I18n.default_locale.to_sym == locale.to_sym
+      locale.to_sym == I18n.default_locale.to_sym
     end
 
-    # Tries to translate a single path segment. If the path segment
-    # contains sth. like a optional format "people(.:format)", only
-    # "people" will be translated, if there is no translation, the path
-    # segment is blank, begins with a ":" (param key) or "*" (wildcard),
-    # the segment is returned untouched
+    # Tries to translate a single path segment.
+    #
+    # If the path segment contains something like an optional format
+    # "people(.:format)", only "people" will be translated.
+    #
+    # If there is no translation, the path segment is blank, begins with a ":"
+    # (param key) or "*" (wildcard), the segment is returned untouched.
     def self.translate_path_segment(segment, locale)
       return segment if segment.blank?
       named_param, hyphenized = segment.split('-'.freeze, 2) if segment.starts_with?(':'.freeze)
